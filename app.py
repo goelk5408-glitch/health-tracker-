@@ -70,6 +70,12 @@ FOOD_DB = {
     "Toned Milk": (0.45, "ml"),
     "Protein Shake (Water base)": (0.40, "ml"),
     "Fresh Orange Juice": (0.45, "ml")
+    "Dahi (Curd)": (0.60, "grams"),
+    "Aloo Sabji": (0.90, "grams"),
+    "Bhindi Masala (Okra)": (0.80, "grams"),
+    "Rajma Chawal": (1.20, "grams"),
+    "Aloo Paratha": (210.0, "quantity"),
+    "Mango Shake": (0.85, "ml"),
 }
 
 EXERCISE_DB = {
