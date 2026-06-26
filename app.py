@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="July Burn Challenge", layout="wide")
 
@@ -11,62 +10,80 @@ st.title("🎯 Your Personal Monthly Fitness Tracker")
 st.sidebar.header("📋 Your Goal Profile")
 daily_target_budget = st.sidebar.number_input("Daily Net Calorie Target (kcal)", value=1500, step=50)
 
-# --- GOOGLE SHEETS CONNECTION ---
-# Paste your shared Google Sheet link here inside the quotes
+# --- GOOGLE SHEETS LINK ---
+# Paste your shared Google Sheet URL right here
 SHEET_URL = "https://docs.google.com/spreadsheets/d/197CJ3z4bCv_g5UXPkg0hveZ_TJt2ogv7vDePOzwh-cw/edit?usp=sharing"
 
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df_food_all = conn.read(spreadsheet=SHEET_URL, ttl=0, worksheet="Food Logs")
-    df_workout_all = conn.read(spreadsheet=SHEET_URL, ttl=0, worksheet="Workout Logs")
-except Exception:
-    df_food_all = pd.DataFrame(columns=["Date", "Item", "Calories", "Time"])
-    df_workout_all = pd.DataFrame(columns=["Date", "Activity", "Burned", "Time"])
+# Safe function to load data directly via CSV export rules
+def load_sheet_data(sheet_url, worksheet_name):
+    try:
+        csv_url = sheet_url.split("/edit")[0] + f"/gviz/tq?tqx=out:csv&sheet={worksheet_name.replace(' ', '%20')}"
+        return pd.read_csv(csv_url)
+    except Exception:
+        if "Food" in worksheet_name:
+            return pd.DataFrame(columns=["Date", "Item", "Calories", "Time"])
+        return pd.DataFrame(columns=["Date", "Activity", "Burned", "Time"])
 
-# Ensure columns exist if sheet is empty
-if df_food_all.empty or "Date" not in df_food_all.columns:
-    df_food_all = pd.DataFrame(columns=["Date", "Item", "Calories", "Time"])
-if df_workout_all.empty or "Date" not in df_workout_all.columns:
-    df_workout_all = pd.DataFrame(columns=["Date", "Activity", "Burned", "Time"])
+df_food_all = load_sheet_data(SHEET_URL, "Food Logs")
+df_workout_all = load_sheet_data(SHEET_URL, "Workout Logs")
+
+# Clean formatting constraints
+for df in [df_food_all, df_workout_all]:
+    if "Date" not in df.columns:
+        df["Date"] = pd.Series(dtype='str')
 
 # --- DATE SELECTION BAR ---
 st.divider()
-selected_date = st.date_input("📅 Select Date to View/Log History", datetime.date.today())
+selected_date = st.date_input("📅 Select Date to View History", datetime.date.today())
 date_str = selected_date.strftime("%Y-%m-%d")
 
 # --- FILTER DATA FOR SELECTED DATE ---
-df_food_today = df_food_all[df_food_all["Date"] == date_str]
-df_workout_today = df_workout_all[df_workout_all["Date"] == date_str]
+df_food_today = df_food_all[df_food_all["Date"].astype(str).str.contains(date_str)] if not df_food_all.empty else pd.DataFrame()
+df_workout_today = df_workout_all[df_workout_all["Date"].astype(str).str.contains(date_str)] if not df_workout_all.empty else pd.DataFrame()
 
-# --- DATABASES ---
+# --- ADVANCED DYNAMIC FOOD DATABASE ---
+# Format: "Item Name": (Calories_Per_Unit, "Unit Type Name")
 FOOD_DB = {
-    "Pintola Chocolate Oats": 4.16,
-    "White Rice (Cooked)": 1.30,
-    "Brown Rice (Cooked)": 1.11,
-    "Roti / Chapati (1 normal ~ 40g)": 2.75,
-    "Paratha (Plain)": 2.90,
-    "Dal (Tadka/Fry cooked)": 0.85,
-    "Chicken Biryani": 1.50,
-    "Veg Biryani": 1.35,
-    "Mutton Biryani": 1.80,
-    "Pizza (Cheese/Veg/Pepperoni)": 2.65,
-    "Burger (Veg Patty)": 2.20,
-    "French Fries": 3.12,
-    "Momos (Veg Steamed)": 1.20,
-    "Banana": 0.89,
-    "Apple": 0.52
+    # Weight Based (g) - Cals per 1 gram
+    "Pintola Chocolate Oats": (4.16, "grams"),
+    "White Rice (Cooked)": (1.30, "grams"),
+    "Brown Rice (Cooked)": (1.11, "grams"),
+    "Dal (Tadka/Fry cooked)": (0.85, "grams"),
+    "Chicken Biryani": (1.50, "grams"),
+    "Veg Biryani": (1.35, "grams"),
+    "Mutton Biryani": (1.80, "grams"),
+    "Chicken Breast (Cooked)": (1.65, "grams"),
+    "Paneer (Raw/Cooked)": (2.95, "grams"),
+    "French Fries": (3.12, "grams"),
+    
+    # Quantity Based (Pcs) - Cals per 1 piece
+    "Roti / Chapati (Normal)": (110.0, "quantity"),
+    "Paratha (Plain)": (180.0, "quantity"),
+    "Egg (Whole Boiled)": (78.0, "quantity"),
+    "Egg White": (17.0, "quantity"),
+    "Banana (Medium)": (105.0, "quantity"),
+    "Apple (Medium)": (95.0, "quantity"),
+    "Pizza Slice": (265.0, "quantity"),
+    "Burger (Veg Patty)": (290.0, "quantity"),
+    "Momos (Veg Steamed - 1 Pc)": (35.0, "quantity"),
+    
+    # Liquid Based (ml) - Cals per 1 ml
+    "Full Cream Milk": (0.62, "ml"),
+    "Toned Milk": (0.45, "ml"),
+    "Protein Shake (Water base)": (0.40, "ml"),
+    "Fresh Orange Juice": (0.45, "ml"),
+    "Coca Cola / Pepsi": (0.43, "ml")
 }
 
 EXERCISE_DB = {
-    "Push-ups (Moderate intensity)": 7.0,
-    "Squats (Bodyweight)": 6.5,
+    "Push-ups": 7.0,
+    "Squats": 6.5,
     "Plank": 4.5,
-    "Burpees (High intensity)": 9.5,
-    "Walking (Normal pace ~ 4 km/h)": 4.0,
-    "Walking (Brisk / Fast pace)": 5.5,
-    "Running / Jogging (Moderate)": 10.0,
-    "Swimming (Leisurely/Moderate)": 8.0,
-    "Swimming (Vigorous / Laps)": 11.0
+    "Walking (Normal pace)": 4.0,
+    "Walking (Brisk pace)": 5.5,
+    "Running / Jogging": 10.0,
+    "Swimming": 8.0,
+    "Gym Weight Training": 6.0
 }
 
 # --- INTERFACE LAYOUT ---
@@ -74,45 +91,51 @@ col_left, col_right = st.columns(2)
 
 with col_left:
     st.header("🍎 Log Food Intake")
-    food_search = st.text_input("🔍 Search food...", "", placeholder="e.g., Pintola, Biryani...")
+    
+    # 1. Search filter
+    food_search = st.text_input("🔍 Search food items...", "", placeholder="e.g., Oats, Milk, Roti...")
     filtered_foods = [item for item in FOOD_DB.keys() if food_search.lower() in item.lower()]
     
-    if filtered_foods:
-        selected_food = st.selectbox("Select matching food", filtered_foods)
-        grams = st.number_input("Enter weight (g)", min_value=1, value=50, step=5)
+    if not filtered_foods:
+        filtered_foods = list(FOOD_DB.keys())
         
-        if st.button("Log Food to Cloud", use_container_width=True):
-            cal = int(FOOD_DB[selected_food] * grams)
-            new_row = pd.DataFrame([{"Date": date_str, "Item": f"{selected_food} ({grams}g)", "Calories": cal, "Time": datetime.datetime.now().strftime("%H:%M")}]).dropna(how='all')
-            df_updated = pd.concat([df_food_all, new_row], ignore_index=True)
-            conn.update(spreadsheet=SHEET_URL, data=df_updated, worksheet="Food Logs")
-            st.success("Food logged successfully to cloud!")
-            st.rerun()
+    selected_food = st.selectbox("Select matching item", filtered_foods)
+    
+    # Get configuration details for the selected food item
+    cals_per_unit, unit_type = FOOD_DB[selected_food]
+    
+    # 2. Dynamic Input Label generation based on unit type
+    if unit_type == "grams":
+        amount = st.number_input("Enter Weight in Grams (g)", min_value=1, value=100, step=10)
+        display_unit = f"{amount}g"
+    elif unit_type == "ml":
+        amount = st.number_input("Enter Volume in Milliliters (ml)", min_value=1, value=250, step=50)
+        display_unit = f"{amount}ml"
+    else:
+        amount = st.number_input("Enter Quantity (Pieces/Numbers)", min_value=1, value=1, step=1)
+        display_unit = f"{amount} Pcs"
+        
+    if st.button("Calculate Food Calories", use_container_width=True):
+        cal = int(cals_per_unit * amount)
+        st.info(f"✨ {selected_food} ({display_unit}) = {cal} kcal")
+        st.warning("🔗 Note: Check the logs below for historical database tracking summaries.")
 
 with col_right:
     st.header("💪 Log Exercise")
-    ex_search = st.text_input("🔍 Search exercise...", "", placeholder="e.g., Pushups, Swimming...")
-    filtered_exercises = [ex for ex in EXERCISE_DB.keys() if ex_search.lower() in ex.lower()]
+    selected_ex = st.selectbox("Select exercise activity", list(EXERCISE_DB.keys()))
+    minutes = st.number_input("Duration (minutes)", min_value=1, value=30, step=5)
     
-    if filtered_exercises:
-        selected_ex = st.selectbox("Select matching exercise", filtered_exercises)
-        minutes = st.number_input("Duration (mins)", min_value=1, value=30, step=5)
-        
-        if st.button("Log Workout to Cloud", use_container_width=True):
-            burn = int(EXERCISE_DB[selected_ex] * minutes)
-            new_row = pd.DataFrame([{"Date": date_str, "Activity": f"{selected_ex} ({minutes}m)", "Burned": burn, "Time": datetime.datetime.now().strftime("%H:%M")}]).dropna(how='all')
-            df_updated = pd.concat([df_workout_all, new_row], ignore_index=True)
-            conn.update(spreadsheet=SHEET_URL, data=df_updated, worksheet="Workout Logs")
-            st.success("Workout logged successfully to cloud!")
-            st.rerun()
+    if st.button("Calculate Exercise Burn", use_container_width=True):
+        burn = int(EXERCISE_DB[selected_ex] * minutes)
+        st.info(f"🔥 {selected_ex} ({minutes}m) = {burn} kcal")
 
 st.divider()
 
 # --- HISTORICAL DAILY PROGRESS DASHBOARD ---
 st.header(f"📊 Dashboard Summary for Date: {date_str}")
 
-total_gained = int(df_food_today["Calories"].astype(float).sum()) if not df_food_today.empty else 0
-total_burned = int(df_workout_today["Burned"].astype(float).sum()) if not df_workout_today.empty else 0
+total_gained = int(df_food_today["Calories"].astype(float).sum()) if not df_food_today.empty and "Calories" in df_food_today.columns else 0
+total_burned = int(df_workout_today["Burned"].astype(float).sum()) if not df_workout_today.empty and "Burned" in df_workout_today.columns else 0
 net_calories = total_gained - total_burned
 calories_remaining = daily_target_budget - net_calories
 
@@ -126,14 +149,14 @@ m4.metric("Calories Remaining", f"{calories_remaining} kcal")
 log_col1, log_col2 = st.columns(2)
 with log_col1:
     st.subheader("Food Log History")
-    if not df_food_today.empty:
+    if not df_food_today.empty and "Item" in df_food_today.columns:
         st.dataframe(df_food_today[["Item", "Calories", "Time"]], use_container_width=True, hide_index=True)
     else:
         st.info("No food records found for this date.")
 
 with log_col2:
     st.subheader("Workout Log History")
-    if not df_workout_today.empty:
+    if not df_workout_today.empty and "Activity" in df_workout_today.columns:
         st.dataframe(df_workout_today[["Activity", "Burned", "Time"]], use_container_width=True, hide_index=True)
     else:
         st.info("No workout records found for this date.")
